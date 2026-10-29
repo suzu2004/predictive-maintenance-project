@@ -225,15 +225,17 @@ Predictive_Maintenance_Project/
 
 | Sheet | Contents |
 |---|---|
-| `MachineSummary` | All machines with latest sensor stats + Risk_Status |
-| `ScoredMachines` | Test-set machines with Failure_Probability predictions |
-| `UnscoredMachines` | Training-set machines (no prediction available) |
-| `SensorDailyTrend` | Daily fleet-level sensor averages |
-| `TopHighRiskReadings` | Top 500 highest-risk sensor readings |
+| `MachineSummary` | Latest sensor stats and risk status for every machine |
+| `ScoredMachines` | Machines with a model prediction |
+| `UnscoredMachines` | Machines without a model prediction |
+| `SensorDailyTrend` | Daily fleet-level sensor averages and failure counts |
+| `TopHighRiskReadings` | Up to 500 highest-risk predictions |
 | `FeatureImportance` | Random Forest feature importances |
-| `ModelComparison` | Accuracy/Precision/Recall/F1/AUC for all three models |
+| `ModelComparison` | Accuracy, precision, recall, F1, and AUC for each model |
 
-Open the `.xlsx` in Power BI Desktop and connect the sheets as data sources to build a 4-page management report.
+The Power BI Desktop report is `PredictiveMaintenance_PowerBI.pbix`; its imported data comes from the workbook above. Refresh the workbook after regenerating the data and model outputs by running `python export_powerbi.py` from the project root. It reads `data/cleaned_sensor_data.csv` and model outputs under `outputs/`. In Power BI Desktop, use **Home → Refresh** after regenerating the workbook.
+
+The `.pbix` uses Import mode and a local workbook path. A Power BI Service scheduled refresh is not configured yet. To enable it after publishing, place the workbook in OneDrive for Business or SharePoint and update the report's source to that cloud file; alternatively, keep the file local and configure an on-premises data gateway. Then set the refresh schedule in the published semantic model's settings. Streamlit's API-connected live prediction is separate from Power BI refresh.
 
 ---
 

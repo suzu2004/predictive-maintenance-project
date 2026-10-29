@@ -25,6 +25,61 @@ st.set_page_config(
 API_URL = os.environ.get("PM_API_URL", "http://localhost:8000")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+st.markdown(
+    """
+    <style>
+    :root {
+        --pm-ink: #eef4ff;
+        --pm-muted: #99aac3;
+        --pm-line: rgba(148, 163, 184, 0.16);
+        --pm-panel: rgba(17, 28, 46, 0.78);
+        --pm-accent: #f28c45;
+        --pm-teal: #39c6b4;
+    }
+    [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(ellipse at 12% 0%, rgba(36, 91, 125, .22), transparent 34%),
+            radial-gradient(ellipse at 92% 8%, rgba(242, 140, 69, .12), transparent 28%),
+            #0b1220;
+    }
+    [data-testid="stHeader"] { background: rgba(11, 18, 32, .72); }
+    .block-container { max-width: 1540px; padding-top: 1.65rem; padding-bottom: 3rem; }
+    .pm-hero {
+        display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+        padding: 1.55rem 1.8rem; margin: .2rem 0 1.35rem;
+        border: 1px solid rgba(148, 163, 184, .2); border-radius: 22px;
+        background: linear-gradient(118deg, rgba(22, 43, 64, .96), rgba(18, 29, 47, .92) 58%, rgba(55, 39, 34, .82));
+        box-shadow: 0 18px 50px rgba(0, 0, 0, .2);
+    }
+    .pm-eyebrow { color: #f5a66d; font-size: .72rem; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+    .pm-title { margin: .3rem 0 .25rem; color: var(--pm-ink); font-size: clamp(1.65rem, 3vw, 2.35rem); font-weight: 760; letter-spacing: -.04em; }
+    .pm-subtitle { margin: 0; color: #b4c1d4; font-size: .98rem; }
+    .pm-pill { white-space: nowrap; color: #d8f7f1; border: 1px solid rgba(57, 198, 180, .3); background: rgba(57, 198, 180, .1); border-radius: 999px; padding: .55rem .85rem; font-size: .82rem; }
+    h1, h2, h3, h4 { color: #f1f5ff !important; }
+    p, label, [data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] p,
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+        color: #c3cfe0 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .55rem; border-bottom: 1px solid var(--pm-line); }
+    [data-testid="stTabs"] button[data-baseweb="tab"] { height: 3rem; border-radius: 12px 12px 0 0; color: #aebbd0; font-weight: 650; }
+    [data-testid="stTabs"] button[aria-selected="true"] { color: #ffd0aa; border-bottom: 2px solid var(--pm-accent); background: rgba(242, 140, 69, .08); }
+    [data-testid="stMetric"] { padding: 1rem 1.1rem; border: 1px solid var(--pm-line); border-radius: 16px; background: linear-gradient(145deg, rgba(24, 39, 60, .88), rgba(16, 27, 44, .9)); box-shadow: 0 10px 24px rgba(0, 0, 0, .12); }
+    [data-testid="stMetricLabel"] { color: #bdcbe0; font-size: .84rem; }
+    [data-testid="stMetricValue"] { color: var(--pm-ink); font-weight: 720; }
+    [data-testid="stAlert"] { border-radius: 14px; }
+    [data-testid="stPlotlyChart"] { border: 1px solid var(--pm-line); border-radius: 16px; overflow: hidden; background: rgba(16, 27, 44, .54); padding: .35rem; }
+    [data-testid="stDataFrame"] { border: 1px solid var(--pm-line); border-radius: 14px; overflow: hidden; }
+    .stButton > button[kind="primary"] { border: 0; border-radius: 11px; background: linear-gradient(110deg, #e97836, #f3a15f); color: #1c1720; font-weight: 750; box-shadow: 0 8px 22px rgba(233, 120, 54, .2); }
+    @media (max-width: 760px) {
+        .block-container { padding: 1rem .85rem 2rem; }
+        .pm-hero { align-items: flex-start; flex-direction: column; padding: 1.2rem; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Data loading
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,13 +107,52 @@ def load_data():
 
 df, preds, fi, metrics = load_data()
 
+
+def style_figure(fig, height=390):
+    """Apply one restrained dark theme to every Plotly visualization."""
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, Segoe UI, sans-serif", color="#dce6f5", size=12),
+        title=dict(
+            x=0.02,
+            y=1.0,
+            xanchor="left",
+            yanchor="top",
+            font=dict(size=17, color="#eef4ff"),
+        ),
+        margin=dict(l=28, r=22, t=88, b=36),
+        height=height,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=1.0,
+            x=0.99,
+            xanchor="right",
+            font=dict(color="#cbd6e6", size=11),
+            bgcolor="rgba(16, 27, 44, 0.72)",
+        ),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="rgba(148,163,184,.22)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,.12)", zeroline=False)
+    return fig
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Header
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("⚙️ Predictive Maintenance Dashboard")
-st.caption(
-    "Industrial equipment failure prediction using IoT sensor data · "
-    "Random Forest · FastAPI · Streamlit"
+st.markdown(
+    """
+    <section class="pm-hero">
+      <div>
+        <div class="pm-eyebrow">Reliability intelligence · Industrial IoT</div>
+        <h1 class="pm-title">Predictive Maintenance</h1>
+        <p class="pm-subtitle">Spot rising equipment risk early and focus maintenance where it matters.</p>
+      </div>
+      <div class="pm-pill">● &nbsp; Fleet analytics ready</div>
+    </section>
+    """,
+    unsafe_allow_html=True,
 )
 
 tab1, tab2, tab3, tab4 = st.tabs(
@@ -69,6 +163,9 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # TAB 1 — Fleet Overview
 # ═════════════════════════════════════════════════════════════════════════════
 with tab1:
+
+    st.subheader("Fleet overview")
+    st.caption("A current snapshot of machine health, failure activity, and maintenance priorities.")
 
     # ── KPI metrics ──────────────────────────────────────────────────────────
     total_machines  = df["Machine_ID"].nunique()
@@ -128,6 +225,7 @@ with tab1:
             plot_bgcolor="rgba(0,0,0,0)",
             coloraxis_showscale=False,
         )
+        style_figure(fig_bar, height=410)
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with c2:
@@ -149,6 +247,7 @@ with tab1:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
         )
+        style_figure(fig_line, height=410)
         st.plotly_chart(fig_line, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -250,6 +349,7 @@ with tab2:
                     paper_bgcolor="rgba(0,0,0,0)",
                     font=dict(color="#FAFAFA"),
                 )
+                style_figure(gauge, height=330)
                 st.plotly_chart(gauge, use_container_width=True)
 
             # Status + recommendation
@@ -283,6 +383,9 @@ with tab2:
 # TAB 3 — Machine Explorer
 # ═════════════════════════════════════════════════════════════════════════════
 with tab3:
+    st.subheader("Machine explorer")
+    st.caption("Inspect sensor history and operating context for an individual machine.")
+
     machine_ids = sorted(df["Machine_ID"].unique())
     selected    = st.selectbox("Select a machine", machine_ids)
     mdf         = df[df["Machine_ID"] == selected].sort_values("Timestamp")
@@ -307,6 +410,7 @@ with tab3:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
+    style_figure(fig_tv, height=400)
     st.plotly_chart(fig_tv, use_container_width=True)
 
     # Pressure & RPM over time
@@ -322,6 +426,7 @@ with tab3:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
     )
+    style_figure(fig_pr, height=400)
     st.plotly_chart(fig_pr, use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -348,6 +453,7 @@ with tab4:
         coloraxis_showscale=False,
         height=460,
     )
+    style_figure(fig_fi, height=460)
     st.plotly_chart(fig_fi, use_container_width=True)
 
     st.caption(

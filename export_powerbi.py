@@ -30,7 +30,7 @@ latest_pred = preds.sort_values("Timestamp").groupby("Machine_ID").tail(1)[["Mac
 # sheet so Power BI users can clearly distinguish scored vs. training-set machines.
 summary = latest.merge(latest_pred, on="Machine_ID", how="left")
 summary["Risk_Status"] = np.select(
-    [summary["Failure_Probability"].isna(), summary["Failure_Probability"].fillna(0) >= 0.5, summary["Failure_Probability"].fillna(0) >= 0.2],
+    [summary["Failure_Probability"].isna(), summary["Failure_Probability"].fillna(0) > 0.5, summary["Failure_Probability"].fillna(0) > 0.2],
     ["Not Scored", "High Risk", "Warning"], default="Healthy"
 )
 summary = summary.rename(columns={"Failure": "Latest_Observed_Failure"})
