@@ -1,0 +1,39 @@
+name: CI — Predictive Maintenance API
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt pytest
+
+      - name: Run unit tests
+        run: pytest tests/ -v
+
+      - name: API smoke test (no model required)
+        run: |
+          # Verify feature row builder works independently of a loaded model
+          python -c "
+          import sys; sys.path.insert(0, 'app')
+          from api import build_feature_row, SensorReading, FEATURE_COLS
+          r = SensorReading(Temperature=78.5, Pressure=135.2, Vibration=0.9,
+                            RPM=2700, Current=12.4, Voltage=410,
+                            Operating_Hours=2200, Maintenance_Count=5, Machine_Age=6)
+          df = build_feature_row(r)
+          assert list(df.columns) == FEATURE_COLS, 'Column mismatch'
+          assert len(df) == 1, 'Expected single row'
+          print('Smoke test passed — feature row OK')
+          "

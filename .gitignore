@@ -1,0 +1,43 @@
+# Predictive Maintenance Project — .gitignore
+
+# ---- Virtual environments ----
+.venv/
+.venv311/
+venv/
+env/
+.env
+
+# ---- Python cache ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- Large data files (too big for Git) ----
+# Re-generate with: python generate_dataset.py + run the notebooks
+data/raw_sensor_data.csv
+data/cleaned_sensor_data.csv
+data/features_final.csv
+
+# ---- Large model/output artifacts ----
+# Re-generate with: run notebooks/04_model_training.ipynb
+outputs/random_forest_model.pkl
+outputs/scaler.pkl
+outputs/test_predictions.csv
+
+# ---- OS generated ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+
+# ---- Streamlit secrets ----
+.streamlit/secrets.toml
