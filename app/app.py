@@ -45,6 +45,16 @@ UPLOAD_BATCH_SIZE = 500
 MAX_UPLOAD_ROWS = 100_000
 
 
+@st.cache_data(show_spinner=False)
+def get_sample_csv_bytes():
+    """Return the cleaned sample data using only columns accepted by the uploader."""
+    sample_path = os.path.join(BASE_DIR, "data", "cleaned_sensor_data.csv")
+    if not os.path.exists(sample_path):
+        sample_path = os.path.join(BASE_DIR, "data", "features_final.csv")
+    sample = pd.read_csv(sample_path, usecols=[*UPLOAD_REQUIRED_COLUMNS, "Failure"])
+    return sample.to_csv(index=False).encode("utf-8")
+
+
 def prepare_uploaded_csv(file_bytes):
     """Read and clean a sensor CSV using the model's expected input schema."""
     frame = pd.read_csv(io.BytesIO(file_bytes))
@@ -192,6 +202,34 @@ st.markdown(
         border-color: rgba(242, 140, 69, .7);
         background: rgba(242, 140, 69, .12);
     }
+    [data-testid="stDownloadButton"] button,
+    [data-testid="stSidebar"] .stDownloadButton button,
+    [data-testid="stSidebar"] button[kind="primary"] {
+        min-height: 2.8rem;
+        border: 1px solid #f3a15f !important;
+        border-radius: 11px;
+        background: linear-gradient(110deg, #e97836, #f3a15f) !important;
+        color: #1c1720 !important;
+        font-size: 1rem;
+        font-weight: 750;
+        box-shadow: 0 8px 22px rgba(233, 120, 54, .18);
+        transition: transform .15s ease, box-shadow .15s ease;
+    }
+    [data-testid="stDownloadButton"] button:hover,
+    [data-testid="stSidebar"] .stDownloadButton button:hover,
+    [data-testid="stSidebar"] button[kind="primary"]:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 25px rgba(233, 120, 54, .28);
+    }
+    [data-testid="stDownloadButton"] button *,
+    [data-testid="stSidebar"] .stDownloadButton button * {
+        color: #1c1720 !important;
+        fill: #1c1720 !important;
+        font-weight: 750;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {
+        font-size: .96rem;
+    }
     [data-testid="stSidebar"] [data-testid="stAlert"] {
         background: rgba(24, 39, 60, .92);
     }
@@ -215,12 +253,13 @@ st.markdown(
         opacity: 1 !important;
     }
     [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: .55rem; border-bottom: 1px solid var(--pm-line); }
-    [data-testid="stTabs"] button[data-baseweb="tab"] { height: 3rem; border-radius: 12px 12px 0 0; color: #aebbd0; font-weight: 650; }
+    [data-testid="stTabs"] button[data-baseweb="tab"] { height: 3rem; border-radius: 12px 12px 0 0; color: #aebbd0; font-size: .94rem; font-weight: 650; }
     [data-testid="stTabs"] button[aria-selected="true"] { color: #ffd0aa; border-bottom: 2px solid var(--pm-accent); background: rgba(242, 140, 69, .08); }
     [data-testid="stMetric"] { padding: 1rem 1.1rem; border: 1px solid var(--pm-line); border-radius: 16px; background: linear-gradient(145deg, rgba(24, 39, 60, .88), rgba(16, 27, 44, .9)); box-shadow: 0 10px 24px rgba(0, 0, 0, .12); }
-    [data-testid="stMetricLabel"] { color: #bdcbe0; font-size: .84rem; }
+    [data-testid="stMetricLabel"] { color: #bdcbe0; font-size: .92rem; }
     [data-testid="stMetricValue"] { color: var(--pm-ink); font-weight: 720; }
     [data-testid="stAlert"] { border-radius: 14px; }
+    [data-testid="stCaptionContainer"] p { font-size: .92rem; line-height: 1.5; }
     [data-testid="stPlotlyChart"] { border: 1px solid var(--pm-line); border-radius: 16px; overflow: hidden; background: rgba(16, 27, 44, .54); padding: .35rem; }
     [data-testid="stDataFrame"] { border: 1px solid var(--pm-line); border-radius: 14px; overflow: hidden; }
     .stButton > button[kind="primary"] { border: 0; border-radius: 11px; background: linear-gradient(110deg, #e97836, #f3a15f); color: #1c1720; font-weight: 750; box-shadow: 0 8px 22px rgba(233, 120, 54, .2); }
@@ -271,6 +310,15 @@ st.sidebar.caption(
     f"Bundled project data · {sample_df['Machine_ID'].nunique():,} machines · "
     f"{len(sample_df):,} sensor readings"
 )
+st.sidebar.download_button(
+    "Download sample CSV",
+    data=get_sample_csv_bytes(),
+    file_name="sample_sensor_dataset.csv",
+    mime="text/csv",
+    type="primary",
+    use_container_width=True,
+)
+st.sidebar.caption("Clean sample with all required columns and an optional Failure label.")
 dataset_source = st.sidebar.radio(
     "Show in dashboard",
     ["Sample dataset", "Uploaded CSV"],

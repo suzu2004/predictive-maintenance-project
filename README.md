@@ -137,9 +137,9 @@ Open **http://localhost:8501** for the dashboard. The "Live Prediction" tab call
 
 ### Upload a Sensor CSV
 
-Use the dashboard's sidebar to switch between the bundled **Sample dataset** and **Uploaded CSV**. The uploader stays in the sidebar; after you choose a CSV, the dashboard processes it and updates the fleet overview and machine explorer. The file must include `Machine_ID`, `Timestamp`, `Temperature`, `Pressure`, `Vibration`, `RPM`, `Current`, `Voltage`, `Operating_Hours`, `Maintenance_Count`, and `Machine_Age`. A `Failure` column is optional.
+Use the dashboard's sidebar to download the cleaned sample CSV or switch between the bundled **Sample dataset** and **Uploaded CSV**. The uploader stays in the sidebar; after you choose a CSV, the dashboard processes it and updates the fleet overview and machine explorer. The file must include `Machine_ID`, `Timestamp`, `Temperature`, `Pressure`, `Vibration`, `RPM`, `Current`, `Voltage`, `Operating_Hours`, `Maintenance_Count`, and `Machine_Age`. A `Failure` column is optional.
 
-The dashboard validates and cleans uploaded readings, fills missing sensor values within each machine's history, and sends them to the existing trained model in batches. It displays risk summaries and per-machine results and lets you download the predictions as a CSV. The upload runs inference with the trained model; it does not retrain it.
+The dashboard removes duplicate rows and rows with invalid machine IDs or timestamps, fills missing sensor values within each machine's history, and sends the readings to the existing trained model in batches. It displays risk summaries and per-machine results and lets you download the predictions as a CSV. This handles missing data and duplicates, but does not smooth sensor noise or cap statistical outliers. The upload runs inference with the trained model; it does not retrain it.
 
 ### 3. Test the API Directly
 ```bash
