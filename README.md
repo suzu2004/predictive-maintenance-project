@@ -135,6 +135,12 @@ streamlit run app.py
 
 Open **http://localhost:8501** for the dashboard. The "Live Prediction" tab calls the API on port 8000.
 
+### Upload a Sensor CSV
+
+Use the dashboard's sidebar to switch between the bundled **Sample dataset** and **Uploaded CSV**. The uploader stays in the sidebar; after you choose a CSV, the dashboard processes it and updates the fleet overview and machine explorer. The file must include `Machine_ID`, `Timestamp`, `Temperature`, `Pressure`, `Vibration`, `RPM`, `Current`, `Voltage`, `Operating_Hours`, `Maintenance_Count`, and `Machine_Age`. A `Failure` column is optional.
+
+The dashboard validates and cleans uploaded readings, fills missing sensor values within each machine's history, and sends them to the existing trained model in batches. It displays risk summaries and per-machine results and lets you download the predictions as a CSV. The upload runs inference with the trained model; it does not retrain it.
+
 ### 3. Test the API Directly
 ```bash
 # Health check

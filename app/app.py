@@ -8,6 +8,11 @@ Run locally (two terminals):
     Terminal 2 (from app/):  streamlit run app.py
 """
 
+import hashlib
+import io
+import re
+
+import numpy as np
 import streamlit as st
 import pandas as pd
 import requests
@@ -25,6 +30,129 @@ st.set_page_config(
 API_URL = os.environ.get("PM_API_URL", "http://localhost:8000")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+UPLOAD_SENSOR_COLUMNS = [
+    "Temperature", "Pressure", "Vibration", "RPM", "Current", "Voltage",
+    "Operating_Hours", "Maintenance_Count", "Machine_Age",
+]
+UPLOAD_REQUIRED_COLUMNS = ["Machine_ID", "Timestamp", *UPLOAD_SENSOR_COLUMNS]
+UPLOAD_VALUE_LIMITS = {
+    "Temperature": (0, 500), "Pressure": (0, 500), "Vibration": (0, 20),
+    "RPM": (0, 10_000), "Current": (0, 100), "Voltage": (0, 1_000),
+    "Operating_Hours": (0, 100_000), "Maintenance_Count": (0, 1_000),
+    "Machine_Age": (0, 50),
+}
+UPLOAD_BATCH_SIZE = 500
+MAX_UPLOAD_ROWS = 100_000
+
+
+def prepare_uploaded_csv(file_bytes):
+    """Read and clean a sensor CSV using the model's expected input schema."""
+    frame = pd.read_csv(io.BytesIO(file_bytes))
+    if frame.empty:
+        raise ValueError("The CSV has headers but no data rows.")
+
+    # Accept common header variations such as "machine id" and "machine_id".
+    canonical_names = {re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_"): name
+                       for name in [*UPLOAD_REQUIRED_COLUMNS, "Failure"]}
+    renamed = {}
+    for column in frame.columns:
+        normalized = re.sub(r"[^a-z0-9]+", "_", str(column).strip().lower()).strip("_")
+        renamed[column] = canonical_names.get(normalized, str(column).strip())
+    if len(set(renamed.values())) != len(renamed):
+        raise ValueError("The CSV has duplicate columns after normalizing their names.")
+    frame = frame.rename(columns=renamed)
+
+    missing_columns = [name for name in UPLOAD_REQUIRED_COLUMNS if name not in frame.columns]
+    if missing_columns:
+        raise ValueError(
+            "Missing required columns: " + ", ".join(missing_columns)
+            + ". Include Machine_ID, Timestamp, the six sensor readings, "
+              "Operating_Hours, Maintenance_Count, and Machine_Age."
+        )
+    if len(frame) > MAX_UPLOAD_ROWS:
+        raise ValueError(f"The CSV has {len(frame):,} rows; the limit is {MAX_UPLOAD_ROWS:,} rows.")
+
+    stats = {"uploaded_rows": len(frame)}
+    frame["Machine_ID"] = frame["Machine_ID"].astype("string").str.strip()
+    frame["Timestamp"] = pd.to_datetime(frame["Timestamp"], errors="coerce")
+    for column in UPLOAD_SENSOR_COLUMNS:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").replace([np.inf, -np.inf], np.nan)
+
+    valid_identity = (
+        frame["Machine_ID"].notna() & frame["Machine_ID"].ne("") & frame["Timestamp"].notna()
+    )
+    stats["invalid_identity_rows"] = int((~valid_identity).sum())
+    frame = frame.loc[valid_identity].copy()
+    if frame.empty:
+        raise ValueError("No rows have both a valid Machine_ID and Timestamp.")
+
+    has_sensor_value = frame[UPLOAD_SENSOR_COLUMNS].notna().any(axis=1)
+    stats["empty_sensor_rows"] = int((~has_sensor_value).sum())
+    frame = frame.loc[has_sensor_value].copy()
+    if frame.empty:
+        raise ValueError("No usable sensor readings were found in the CSV.")
+
+    before_dedup = len(frame)
+    frame = frame.drop_duplicates().sort_values(["Machine_ID", "Timestamp"]).reset_index(drop=True)
+    stats["duplicate_rows"] = before_dedup - len(frame)
+
+    missing_before = int(frame[UPLOAD_SENSOR_COLUMNS].isna().sum().sum())
+    for column in UPLOAD_SENSOR_COLUMNS:
+        frame[column] = frame.groupby("Machine_ID", sort=False)[column].transform(
+            lambda values: values.ffill().bfill()
+        )
+        if frame[column].isna().all():
+            raise ValueError(f"Column {column} has no numeric values to process.")
+        frame[column] = frame[column].fillna(frame[column].median())
+    stats["imputed_sensor_values"] = missing_before
+
+    for column in ("Maintenance_Count", "Machine_Age"):
+        frame[column] = frame[column].round()
+
+    invalid_ranges = []
+    for column, (minimum, maximum) in UPLOAD_VALUE_LIMITS.items():
+        invalid_count = int((~frame[column].between(minimum, maximum)).sum())
+        if invalid_count:
+            invalid_ranges.append(f"{column}: {invalid_count} row(s) outside {minimum}–{maximum}")
+    if invalid_ranges:
+        raise ValueError("Values are outside the supported model ranges: " + "; ".join(invalid_ranges))
+
+    if "Failure" in frame.columns:
+        frame["Failure"] = pd.to_numeric(frame["Failure"], errors="coerce")
+
+    stats["processed_rows"] = len(frame)
+    stats["machines"] = int(frame["Machine_ID"].nunique())
+    return frame, stats
+
+
+def score_uploaded_csv(frame):
+    """Get predictions through the batch API and align them to uploaded rows."""
+    batch_results = []
+    for start in range(0, len(frame), UPLOAD_BATCH_SIZE):
+        batch = frame.iloc[start:start + UPLOAD_BATCH_SIZE]
+        readings = batch[UPLOAD_SENSOR_COLUMNS].copy()
+        readings.insert(0, "Timestamp", batch["Timestamp"].astype(str))
+        readings.insert(0, "Machine_ID", batch["Machine_ID"])
+        readings["Maintenance_Count"] = readings["Maintenance_Count"].astype(int)
+        readings["Machine_Age"] = readings["Machine_Age"].astype(int)
+        response = requests.post(
+            f"{API_URL}/predict/batch",
+            json={"readings": readings.to_dict(orient="records")},
+            timeout=60,
+        )
+        response.raise_for_status()
+        batch_results.extend(response.json())
+
+    predictions = pd.DataFrame(batch_results).rename(columns={
+        "failure_probability": "Failure_Probability",
+        "predicted_failure": "Predicted_Failure",
+        "risk_status": "Risk_Status",
+    })
+    predictions["Predicted_Failure"] = predictions["Predicted_Failure"].astype(int)
+    predictions.insert(0, "Timestamp", frame["Timestamp"].reset_index(drop=True))
+    predictions.insert(0, "Machine_ID", frame["Machine_ID"].reset_index(drop=True))
+    return predictions
+
 st.markdown(
     """
     <style>
@@ -41,6 +169,31 @@ st.markdown(
             radial-gradient(ellipse at 12% 0%, rgba(36, 91, 125, .22), transparent 34%),
             radial-gradient(ellipse at 92% 8%, rgba(242, 140, 69, .12), transparent 28%),
             #0b1220;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #111c2e, #0b1220);
+        border-right: 1px solid rgba(148, 163, 184, .16);
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+        color: #c3cfe0 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+        background: rgba(24, 39, 60, .88);
+        border: 1px dashed rgba(148, 163, 184, .42);
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] * {
+        color: #dce6f5 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+        border-color: rgba(242, 140, 69, .7);
+        background: rgba(242, 140, 69, .12);
+    }
+    [data-testid="stSidebar"] [data-testid="stAlert"] {
+        background: rgba(24, 39, 60, .92);
     }
     [data-testid="stHeader"] { background: rgba(11, 18, 32, .72); }
     .block-container { max-width: 1540px; padding-top: 1.65rem; padding-bottom: 3rem; }
@@ -105,7 +258,77 @@ def load_data():
         st.stop()
 
 
-df, preds, fi, metrics = load_data()
+sample_df, sample_preds, fi, metrics = load_data()
+
+
+def _select_uploaded_dataset():
+    st.session_state["dashboard_data_source"] = "Uploaded CSV"
+
+
+st.sidebar.markdown("## Dashboard data")
+st.sidebar.markdown("**Sample dataset**")
+st.sidebar.caption(
+    f"Bundled project data · {sample_df['Machine_ID'].nunique():,} machines · "
+    f"{len(sample_df):,} sensor readings"
+)
+dataset_source = st.sidebar.radio(
+    "Show in dashboard",
+    ["Sample dataset", "Uploaded CSV"],
+    key="dashboard_data_source",
+)
+uploaded_csv = st.sidebar.file_uploader(
+    "Upload CSV",
+    type=["csv"],
+    accept_multiple_files=False,
+    help="CSV must contain machine IDs, timestamps, and the sensor and usage columns shown in the dashboard.",
+    on_change=_select_uploaded_dataset,
+    key="dashboard_csv_uploader",
+)
+
+df, preds = sample_df, sample_preds
+has_observed_failures = True
+active_dataset_label = "Sample dataset"
+upload_error = None
+
+if dataset_source == "Uploaded CSV":
+    if uploaded_csv is None:
+        st.sidebar.info("Upload a CSV below to switch the dashboard to your data.")
+    else:
+        uploaded_bytes = uploaded_csv.getvalue()
+        upload_id = hashlib.sha256(uploaded_bytes).hexdigest()
+        cached_upload = st.session_state.get("processed_dashboard_upload")
+        if not cached_upload or cached_upload["upload_id"] != upload_id:
+            try:
+                with st.spinner("Preparing CSV and generating dashboard predictions…"):
+                    upload_df, _ = prepare_uploaded_csv(uploaded_bytes)
+                    upload_preds = score_uploaded_csv(upload_df)
+                    actual_labels = (
+                        "Failure" in upload_df.columns and upload_df["Failure"].notna().any()
+                    )
+                    if not actual_labels:
+                        upload_df["Failure"] = upload_preds["Predicted_Failure"].to_numpy()
+                    st.session_state["processed_dashboard_upload"] = {
+                        "upload_id": upload_id,
+                        "data": upload_df,
+                        "predictions": upload_preds,
+                        "has_observed_failures": bool(actual_labels),
+                    }
+                cached_upload = st.session_state["processed_dashboard_upload"]
+            except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
+                upload_error = f"CSV could not be prepared: {exc}"
+            except requests.RequestException as exc:
+                upload_error = f"Could not reach the prediction API at {API_URL}: {exc}"
+            except Exception as exc:
+                upload_error = f"The uploaded CSV could not be processed: {exc}"
+
+        if upload_error:
+            st.sidebar.error(upload_error)
+            st.sidebar.caption("The dashboard is showing the bundled sample dataset.")
+        elif cached_upload and cached_upload["upload_id"] == upload_id:
+            df = cached_upload["data"]
+            preds = cached_upload["predictions"]
+            has_observed_failures = cached_upload["has_observed_failures"]
+            active_dataset_label = uploaded_csv.name
 
 
 def style_figure(fig, height=390):
@@ -155,6 +378,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.caption(f"Active dashboard data: {active_dataset_label}")
+
 tab1, tab2, tab3, tab4 = st.tabs(
     ["📊 Fleet Overview", "🔮 Live Prediction (API)", "🏭 Machine Explorer", "📈 Model Insights"]
 )
@@ -165,7 +390,12 @@ tab1, tab2, tab3, tab4 = st.tabs(
 with tab1:
 
     st.subheader("Fleet overview")
-    st.caption("A current snapshot of machine health, failure activity, and maintenance priorities.")
+    failure_metric_name = "Observed Failure Rate" if has_observed_failures else "Predicted Failure Rate"
+    failure_event_name = "Observed" if has_observed_failures else "Predicted"
+    st.caption(
+        f"A current snapshot of {active_dataset_label} with {failure_event_name.lower()} "
+        "failure activity and maintenance priorities."
+    )
 
     # ── KPI metrics ──────────────────────────────────────────────────────────
     total_machines  = df["Machine_ID"].nunique()
@@ -176,7 +406,7 @@ with tab1:
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total Machines",          total_machines)
     k2.metric("Total Sensor Readings",   f"{total_readings:,}")
-    k3.metric("Overall Failure Rate",    f"{failure_rate:.2f}%")
+    k3.metric(failure_metric_name,         f"{failure_rate:.2f}%")
     k4.metric("Machines Flagged High Risk", high_risk_count)
 
     st.divider()
@@ -215,8 +445,8 @@ with tab1:
             failure_by_machine,
             x="Machine_ID",
             y="Failure",
-            title="Top 15 Machines by Failure Rate",
-            labels={"Failure": "Failure Rate", "Machine_ID": "Machine"},
+            title=f"Top 15 Machines by {failure_event_name} Failure Rate",
+            labels={"Failure": f"{failure_event_name} Failure Rate", "Machine_ID": "Machine"},
             color="Failure",
             color_continuous_scale=["#330000", "#cc3300", "#ff6600"],
         )
@@ -239,8 +469,8 @@ with tab1:
             daily_failures,
             x="Timestamp",
             y="Failure",
-            title="Daily Failure Events Across Fleet",
-            labels={"Failure": "Failure Events", "Timestamp": "Date"},
+            title=f"Daily {failure_event_name} Failure Events Across Fleet",
+            labels={"Failure": f"{failure_event_name} Failure Events", "Timestamp": "Date"},
             color_discrete_sequence=["#ff6600"],
         )
         fig_line.update_layout(
@@ -395,7 +625,7 @@ with tab3:
     m1.metric("Operating Hours",   int(mdf["Operating_Hours"].max()))
     m2.metric("Machine Age (yr)",  int(mdf["Machine_Age"].iloc[-1]))
     m3.metric("Maintenance Count", int(mdf["Maintenance_Count"].iloc[-1]))
-    m4.metric("Failure Rate",      f"{mdf['Failure'].mean()*100:.2f}%")
+    m4.metric(failure_metric_name,  f"{mdf['Failure'].mean()*100:.2f}%")
 
     # Temperature & Vibration over time
     fig_tv = px.line(

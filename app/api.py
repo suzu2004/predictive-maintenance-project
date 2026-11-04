@@ -15,6 +15,7 @@ Endpoints:
     GET  /machines          -> list of machines with latest known stats (pre-computed)
     GET  /metrics           -> model evaluation scores from training pipeline
     POST /predict           -> predict failure risk from sensor readings
+    POST /predict/batch     -> predict failure risk for up to 1,000 readings
 """
 
 import logging
@@ -150,6 +151,10 @@ class PredictionResponse(BaseModel):
     risk_status:         str
 
 
+class BatchPredictionRequest(BaseModel):
+    readings: List[SensorReading] = Field(..., min_length=1, max_length=1000)
+
+
 class HealthResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -248,4 +253,34 @@ def predict(reading: SensorReading):
         raise HTTPException(
             status_code=422,
             detail="Invalid input: could not process sensor readings."
+        )
+
+
+@app.post("/predict/batch", tags=["Inference"])
+def predict_batch(request: BatchPredictionRequest):
+    """Predict failure risk for a batch of up to 1,000 sensor readings."""
+    if not model_ready:
+        raise HTTPException(status_code=503, detail="Model not ready. Check server logs.")
+    try:
+        X = pd.concat(
+            [build_feature_row(reading) for reading in request.readings],
+            ignore_index=True,
+        )
+        probabilities = model.predict_proba(X)[:, 1]
+        return [
+            {
+                "failure_probability": round(float(probability), 4),
+                "predicted_failure": int(probability >= 0.5),
+                "risk_status": (
+                    "High Risk" if probability > 0.5
+                    else ("Warning" if probability > 0.2 else "Healthy")
+                ),
+            }
+            for probability in probabilities
+        ]
+    except Exception as e:
+        logger.error("Batch prediction failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid input: could not process the uploaded sensor readings.",
         )
